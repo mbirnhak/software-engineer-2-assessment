@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.db
+
+# VS Code (if you're using it)
+.vscode/
+
+# macOS
+.DS_Store
+
+# Node (React frontend)
+node_modules/
+build/
+dist/
+.env
+.env.local
+
+# Logs
+*.log
+
+# OS / temp
+*.swp
+*.swo
+*.tmp
