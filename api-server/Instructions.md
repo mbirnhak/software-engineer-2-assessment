@@ -9,7 +9,7 @@ This is a FastAPI server application. Below are the steps to set up and run the 
 
 ## Setup
 
-1. Clone the repository or navigate to your project folder:
+1. Clone the repository and navigate to your project folder:
 
     ```bash
     git clone https://github.com/mbirnhak/software-engineer-2-assessment.git
@@ -19,7 +19,7 @@ This is a FastAPI server application. Below are the steps to set up and run the 
 2. Create a virtual environment (if you haven't already):
 
     ```bash
-    python3 -m venv .venv
+    python3 -m venv venv
     ```
 
 3. Activate the virtual environment:
