@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
 interface Message {
@@ -11,6 +11,9 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [message, setMessage] = useState<string>("")
   const [error, setError] = useState<boolean>(false)
+  // Added these new state variables for message moving
+  const [movingMessageId, setMovingMessageId] = useState<number | null>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   // Welcome!
   // Edit the below functions to make the application functional.
@@ -22,7 +25,7 @@ function App() {
   const apiUrl = "http://localhost:8000/messages"
 
   useEffect(() => {
-    // Fetch the initial message list from the api server and set the messages state
+    // Fetch the initial message list from the api server and set the messages state (sorted by order)
     fetch(apiUrl)
       .then(response => response.json())
       .then(data => {
@@ -33,8 +36,16 @@ function App() {
       .catch(error => {
         console.error('Error fetching messages:', error)
       })
+    // Cleanup function to clear any pending timeouts
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current)
+      }
+    }
   }, [])
 
+  // This function is called when the user submits a new message.
+  // It sends a POST request to the api server with the new message and updates the messages state.
   const submitMessage = () => {
     if (message.trim() === "") {
       setError(true)
@@ -69,6 +80,9 @@ function App() {
     )
   }
 
+  // This function is called when the user clicks the delete button for a message.
+  // It sends a DELETE request to the api server and updates the messages state.
+  // It also updates the order of the remaining messages.
   const deleteMessage = (id: number) => {
     fetch(`${apiUrl}/${id}`, {
       method: 'DELETE'
@@ -85,11 +99,11 @@ function App() {
       const updatedMessages = messages
         .filter(msg => msg.id !== deleted_message.id)
         .sort((a, b) => a.order - b.order);
-      const changedMessages: { id: number }[] = [];
+      const changedMessages: Message[] = [];
       // Only update the order of the messages with order > deleted messages order
       const reordered = updatedMessages.map((msg) => {
         if (msg.order > deletedOrder) {
-          changedMessages.push({ id: msg.id });
+          changedMessages.push(msg);
           return { ...msg, order: msg.order - 1 };
         }
         return msg;
@@ -97,8 +111,23 @@ function App() {
       setMessages(reordered);
 
       // Sync the new order with the server
-      changedMessages.forEach((msg) => {
-        moveMessageUp(msg.id);
+      changedMessages.forEach((msg: Message) => {
+        fetch(`${apiUrl}/${msg.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            order: msg.order - 1,
+            content: messages.find(m => m.id === msg.id)?.content
+          })
+        }).then(response => {
+          if (!response.ok) {
+            throw new Error('Failed to update message order');
+          }
+        }).catch(error => {
+          console.error('Error updating message order:', error);
+        });
       });
     }
     ).catch(error => {
@@ -107,6 +136,25 @@ function App() {
     )
   }
 
+  // Added this helper function for moving messages (for animation purposes)
+  const setMovingMessage = (id: number) => {
+    // Clear any existing timeout
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current)
+    }
+
+    // Set the moving message ID
+    setMovingMessageId(id)
+
+    // Clear the moving message ID after animation completes
+    timeoutRef.current = window.setTimeout(() => {
+      setMovingMessageId(null)
+    }, 600)
+  }
+
+  // This function is called when the user clicks the up button for a message.
+  // It sends a PUT request to the api server to update the order of the message
+  // and the message before it, and updates the messages state.
   const moveMessageUp = async (id: number) => {
     // Find the message and its order
     const message = messages.find(msg => msg.id === id);
@@ -123,6 +171,9 @@ function App() {
     if (!messageBefore) {
       return; // Safety check: there should be a message before, but just in case
     }
+
+    // Set moving animation state
+    setMovingMessage(id)
 
     try {
       // First API call - move the target message up
@@ -182,6 +233,9 @@ function App() {
     }
   };
 
+  // This function is called when the user clicks the down button for a message.
+  // It sends a PUT request to the api server to update the order of the message
+  // and the message after it, and updates the messages state.
   const moveMessageDown = async (id: number) => {
     // Find the message and its order
     const message = messages.find(msg => msg.id === id);
@@ -198,6 +252,9 @@ function App() {
     if (!messageAfter) {
       return; // Safety check: there should be a message after, but just in case
     }
+
+    // Set moving animation state
+    setMovingMessage(id)
 
     try {
       // First API call - move the target message down
@@ -237,7 +294,7 @@ function App() {
       const updatedMessage2 = await response2.json();
 
       // Update the state with both changes at once
-      const updatedMessages = messages.map(msg => {
+      const updatedMessages = messages.map((msg: Message) => {
         if (msg.id === updatedMessage1.id) {
           return { ...msg, order: updatedMessage1.order };
         }
@@ -262,7 +319,9 @@ function App() {
         <h3>Messages</h3>
         <ol>
           {messages.map(msg => (
-            <li className="message" key={msg.id}>
+            <li className={`message ${movingMessageId === msg.id ? 'message-moving' : ''}`} 
+              key={msg.id}
+            >
               <div className="button-group">
                 <button onClick={() => deleteMessage(msg.id)}>❌</button>
                 <div className="button-column-group">
