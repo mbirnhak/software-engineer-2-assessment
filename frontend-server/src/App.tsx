@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
+interface Message {
+  id: number
+  content: string
+  order: number
+}
+
 function App() {
-  const [messages, setMessages] = useState<string[]>(["test", "a", "b", "c"])
+  const [messages, setMessages] = useState<Message[]>([])
   const [message, setMessage] = useState<string>("")
   const [error, setError] = useState<boolean>(false)
 
@@ -13,30 +19,242 @@ function App() {
   // the api server after every operation.
   // Finally, you should not need to make any changes to the rendering/styling
   // of the application.
+  const apiUrl = "http://localhost:8000/messages"
 
   useEffect(() => {
     // Fetch the initial message list from the api server and set the messages state
-  })
+    fetch(apiUrl)
+      .then(response => response.json())
+      .then(data => {
+        const sortedData = data.sort((a: Message, b: Message) => a.order - b.order)
+        setMessages(sortedData)
+        console.log("Fetched messages:", data)
+      })
+      .catch(error => {
+        console.error('Error fetching messages:', error)
+      })
+  }, [])
 
   const submitMessage = () => {
-    // your code here
-    // validate the message, update the messages state and sync with api server
+    if (message.trim() === "") {
+      setError(true)
+      return
+    }
+    console.log("submitMessage", message)
+    setError(false)
+    fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        {
+          content: message,
+          order: messages.length,
+        })
+    }).then(response => {
+      if (response.ok) {
+        return response.json()
+      } else {
+        throw new Error('Network response was not ok')
+      }
+    }
+    ).then(data => {
+      setMessages(messages => [...messages, data])
+      setMessage("")
+    }
+    ).catch(error => {
+      console.error('Error submitting message:', error)
+    }
+    )
   }
 
-  const deleteMessage = () => {
-    // your code here
-    // delete the message and sync with the api server
+  const deleteMessage = (id: number) => {
+    fetch(`${apiUrl}/${id}`, {
+      method: 'DELETE'
+    }).then(response => {
+      if (response.ok) {
+        return response.json()
+      } else {
+        throw new Error('Network response was not ok')
+      }
+    }
+    ).then((deleted_message: Message) => {
+      const deletedOrder = deleted_message.order;
+      // Filter out the deleted message
+      const updatedMessages = messages
+        .filter(msg => msg.id !== deleted_message.id)
+        .sort((a, b) => a.order - b.order);
+      const changedMessages: { id: number }[] = [];
+      // Only update the order of the messages with order > deleted messages order
+      const reordered = updatedMessages.map((msg) => {
+        if (msg.order > deletedOrder) {
+          changedMessages.push({ id: msg.id });
+          return { ...msg, order: msg.order - 1 };
+        }
+        return msg;
+      });
+      setMessages(reordered);
+
+      // Sync the new order with the server
+      changedMessages.forEach((msg) => {
+        moveMessageUp(msg.id);
+      });
+    }
+    ).catch(error => {
+      console.error('Error deleting message:', error)
+    }
+    )
   }
 
-  const moveMessageUp = () => {
-    // your code here
-    // move the message up by one and sync new message order with api server
-  }
+  const moveMessageUp = async (id: number) => {
+    // Find the message and its order
+    const message = messages.find(msg => msg.id === id);
+    const messageOrder = message?.order;
 
-  const moveMessageDown = () => {
-    // your code here
-    // move the message down by one and sync new message order with api server
-  } 
+    // Early return if message not found or is already at the top
+    if (messageOrder === undefined || messageOrder === 0) {
+      return;
+    }
+
+    // Find the message before the one we want to move
+    const messageBefore = messages.find(msg => msg.order === messageOrder - 1);
+
+    if (!messageBefore) {
+      return; // Safety check: there should be a message before, but just in case
+    }
+
+    try {
+      // First API call - move the target message up
+      const response1 = await fetch(`${apiUrl}/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          order: messageOrder - 1,
+          content: message?.content
+        })
+      });
+
+      if (!response1.ok) {
+        throw new Error('Failed to update first message');
+      }
+
+      const updatedMessage1 = await response1.json();
+
+      // Second API call - move the other message down
+      const response2 = await fetch(`${apiUrl}/${messageBefore.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(
+          {
+            order: messageOrder,
+            content: messageBefore.content
+          })
+      });
+
+      if (!response2.ok) {
+        throw new Error('Failed to update second message');
+      }
+
+      const updatedMessage2 = await response2.json();
+
+      // Update the state with both changes at once
+      const updatedMessages = messages.map(msg => {
+        if (msg.id === updatedMessage1.id) {
+          return { ...msg, order: updatedMessage1.order };
+        }
+        if (msg.id === updatedMessage2.id) {
+          return { ...msg, order: updatedMessage2.order };
+        }
+        return msg;
+      });
+
+      setMessages(
+        [...updatedMessages].sort((a, b) => a.order - b.order)
+      );
+
+    } catch (error) {
+      console.error('Error moving message up:', error);
+    }
+  };
+
+  const moveMessageDown = async (id: number) => {
+    // Find the message and its order
+    const message = messages.find(msg => msg.id === id);
+    const messageOrder = message?.order;
+
+    // Early return if message not found or is already at the bottom
+    if (messageOrder === undefined || messageOrder === messages.length - 1) {
+      return;
+    }
+
+    // Find the message after the one we want to move
+    const messageAfter = messages.find(msg => msg.order === messageOrder + 1);
+
+    if (!messageAfter) {
+      return; // Safety check: there should be a message after, but just in case
+    }
+
+    try {
+      // First API call - move the target message down
+      const response1 = await fetch(`${apiUrl}/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          order: messageOrder + 1,
+          content: message?.content
+        })
+      });
+
+      if (!response1.ok) {
+        throw new Error('Failed to update first message');
+      }
+
+      const updatedMessage1 = await response1.json();
+
+      // Second API call - move the other message up
+      const response2 = await fetch(`${apiUrl}/${messageAfter.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          order: messageOrder,
+          content: messageAfter.content
+        })
+      });
+
+      if (!response2.ok) {
+        throw new Error('Failed to update second message');
+      }
+
+      const updatedMessage2 = await response2.json();
+
+      // Update the state with both changes at once
+      const updatedMessages = messages.map(msg => {
+        if (msg.id === updatedMessage1.id) {
+          return { ...msg, order: updatedMessage1.order };
+        }
+        if (msg.id === updatedMessage2.id) {
+          return { ...msg, order: updatedMessage2.order };
+        }
+        return msg;
+      });
+
+      setMessages(
+        [...updatedMessages].sort((a, b) => a.order - b.order)
+      );
+
+    } catch (error) {
+      console.error('Error moving message down:', error);
+    }
+  };
 
   return (
     <div className="container">
@@ -44,15 +262,15 @@ function App() {
         <h3>Messages</h3>
         <ol>
           {messages.map(msg => (
-            <li className="message" key={msg}>
+            <li className="message" key={msg.id}>
               <div className="button-group">
-                <button onClick={deleteMessage}>❌</button>
+                <button onClick={() => deleteMessage(msg.id)}>❌</button>
                 <div className="button-column-group">
-                  <button onClick={moveMessageUp}>🔼</button>
-                  <button onClick={moveMessageDown}>🔽</button>
+                  <button onClick={() => moveMessageUp(msg.id)}>🔼</button>
+                  <button onClick={() => moveMessageDown(msg.id)}>🔽</button>
                 </div>
               </div>
-              {msg}
+              {msg.content}
             </li>
           ))}
         </ol>
@@ -62,7 +280,7 @@ function App() {
         <div className="input-group">
           <input value={message} onChange={(e) => setMessage(e.target.value)} />
           <button onClick={submitMessage}>submit</button>
-          <p style={{color: "hotPink", visibility: error? "visible": "hidden"}}>Message can not be empty</p>
+          <p style={{ color: "hotPink", visibility: error ? "visible" : "hidden" }}>Message can not be empty</p>
         </div>
       </div>
     </div>
